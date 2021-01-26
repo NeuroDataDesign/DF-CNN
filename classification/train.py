@@ -1,6 +1,7 @@
 import os
 import timeit
 from random import shuffle
+import pickle
 
 import numpy as np
 import tensorflow as tf
@@ -18,6 +19,28 @@ from classification.model.lifelong_ver.cnn_lasem_model import LL_CNN_HPS_EM_algo
 
 _tf_ver = tf.__version__.split('.')
 _up_to_date_tf = int(_tf_ver[0]) > 1 or (int(_tf_ver[0])==1 and int(_tf_ver[1]) > 14)
+
+# jd's function
+def get_size(obj, seen=None):
+    """Recursively finds size of objects"""
+    size = sys.getsizeof(obj)
+    if seen is None:
+        seen = set()
+    obj_id = id(obj)
+    if obj_id in seen:
+        return 0
+    # Important mark as seen *before* entering recursion to gracefully handle
+    # self-referential objects
+    seen.add(obj_id)
+    if isinstance(obj, dict):
+        size += sum([get_size(v, seen) for v in obj.values()])
+        size += sum([get_size(k, seen) for k in obj.keys()])
+    elif hasattr(obj, '__dict__'):
+        size += get_size(obj.__dict__, seen)
+    '''elif hasattr(obj, '__iter__') and not isinstance(obj, (str, bytes, bytearray)):
+        size += sum([get_size(i, seen) for i in obj])'''
+    return size
+
 
 #### function to generate appropriate deep neural network
 def model_generation(model_architecture, model_hyperpara, train_hyperpara, data_info, classification_prob=False, data_list=None, tfInitParam=None, lifelong=False):
@@ -134,6 +157,13 @@ def model_generation(model_architecture, model_hyperpara, train_hyperpara, data_
 
 #### module of training/testing one model
 def train_lifelong(model_architecture, model_hyperpara, train_hyperpara, dataset, data_type, classification_prob, useGPU=False, GPU_device=0, save_param=False, param_folder_path='saved_param', save_param_interval=100, save_graph=False, tfInitParam=None, run_cnt=0):
+    
+    ##JD code
+    count = 0
+    time_info = []
+    model_size = []
+
+
     print("Training function for lifelong learning!")
     assert ('den' not in model_architecture and 'dynamically' not in model_architecture), "Use train function appropriate to the architecture"
 
@@ -208,6 +238,8 @@ def train_lifelong(model_architecture, model_hyperpara, train_hyperpara, dataset
     train_error_hist, valid_error_hist, test_error_hist, best_test_error_hist = [], [], [], []
 
     start_time = timeit.default_timer()
+
+    jd_start = timeit.default_timer()
     for train_task_cnt, (task_for_train) in enumerate(task_training_order):
         tf.reset_default_graph()
 
@@ -324,10 +356,28 @@ def train_lifelong(model_architecture, model_hyperpara, train_hyperpara, dataset
                         print('\n\t>>Change to new task!<<\n')
                     break
 
+        jd_end = timeit.default_timer()
+        time_info.append(jd_end-jd_start)
+        print(time_info,'time info')
+        model_size.append(get_size(learning_model))
+        print(model_size,'model_size')
+
+
     end_time = timeit.default_timer()
     print("End of Training")
     print("Time consumption for training : %.2f" %(end_time-start_time))
 
+    ###JD
+    with open('./tmp/res.pickle', 'wb') as f:
+        pickle.dump(test_accuracy_hist, f)
+
+    with open('time_info.pickle','wb') as f:
+        pickle.dump(time_info, f)
+
+    with open('memory_info.pickle','wb') as f:
+        pickle.dump(model_size, f) 
+
+        
     result_summary = {}
     result_summary['training_time'] = end_time - start_time
     result_summary['num_epoch'] = learning_step
